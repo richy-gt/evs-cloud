@@ -1,0 +1,35 @@
+server:
+  port: ${SERVER_PORT:8082}
+
+spring:
+  application:
+    name: pedidos360-rabbit-consumer
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+
+app:
+  rabbit:
+    exchange: pedidos.events
+    retry-exchange: pedidos.retry
+    dead-letter-exchange: pedidos.dlx
+    routing-keys:
+      notifications: pedido.created.notifications
+      tickets: pedido.created.tickets
+      documents: pedido.created.documents
+    queues:
+      notifications: pedidos.notifications
+      tickets: pedidos.tickets
+      documents: pedidos.documents
+    retry-queues:
+      notifications: pedidos.notifications.retry
+      tickets: pedidos.tickets.retry
+      documents: pedidos.documents.retry
+    dead-letter-queues:
+      notifications: pedidos.notifications.dlq
+      tickets: pedidos.tickets.dlq
+      documents: pedidos.documents.dlq
+    retry-delay: 5000
+    max-retries: 3

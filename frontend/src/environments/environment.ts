@@ -7,14 +7,14 @@ export const environment = {
   // Configuracion de Azure Active Directory (Entra ID)
   azure: {
     // 1. Application (client) ID registrado en Azure Portal
-    clientId: '438f00d6-0d85-47f8-b2ce-8bb0692ab42e',
+    clientId: 'ea2fb415-bdb9-4bdd-b5bf-f8a75940669e',
 
     // 2. Directory (tenant) ID registrado en Azure Portal
-    tenantId: '3aff258d-8148-4333-b4f0-b703a6506f13',
+    tenantId: '58c26126-72f0-428e-b188-c61a51999d72',
 
     // 3. Authority URL (o tenantId directamente)
     // Ejemplo: https://login.microsoftonline.com/TU_TENANT_ID_DE_AZURE
-    authority: 'https://login.microsoftonline.com/3aff258d-8148-4333-b4f0-b703a6506f13',
+    authority: 'https://login.microsoftonline.com/58c26126-72f0-428e-b188-c61a51999d72',
 
     // 4. URI de redireccion autorizada en Azure Portal (Single-Page Application)
     redirectUri: 'http://localhost:4200',
@@ -24,13 +24,13 @@ export const environment = {
 
     // 6. Scopes solicitados para acceder a la API del backend
     // Ejemplo: ['api://TU_BACKEND_CLIENT_ID/access_as_user', 'User.Read']
-    scopes: ['api://8d2ecd3f-4a43-467d-b2f9-e75e887036e1/access_as_user', 'User.Read'],
+    scopes: ['api://1bbf593c-a093-4b35-8b78-c61b86831344/access_as_user', 'User.Read'],
   },
 
   // Configuracion del API Gateway / BFF (Spring Boot en AWS EC2)
   api: {
     // URL base del API Gateway de AWS o BFF
-    baseUrl: 'https://1xzvsf585a.execute-api.us-east-1.amazonaws.com',
+    baseUrl: 'http://localhost:8080/api',
     // Si esta en desarrollo local con Spring Boot:
     localBaseUrl: 'http://localhost:8080/api',
   },

@@ -3,6 +3,7 @@ package cl.duoc.pedidos360.service;
 import cl.duoc.pedidos360.entity.ItemPedidoEntity;
 import cl.duoc.pedidos360.entity.PedidoEntity;
 import cl.duoc.pedidos360.repository.PedidoRepository;
+import cl.duoc.pedidos360.messaging.PedidoEventPublisher;
 import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,9 +15,11 @@ import java.util.*;
 public class PedidoService {
 
     private final PedidoRepository pedidoRepository;
+    private final PedidoEventPublisher pedidoEventPublisher;
 
-    public PedidoService(PedidoRepository pedidoRepository) {
+    public PedidoService(PedidoRepository pedidoRepository, PedidoEventPublisher pedidoEventPublisher) {
         this.pedidoRepository = pedidoRepository;
+        this.pedidoEventPublisher = pedidoEventPublisher;
     }
 
     @PostConstruct
@@ -118,7 +121,9 @@ public class PedidoService {
             }
         }
 
-        return pedidoRepository.save(nuevo);
+        PedidoEntity creado = pedidoRepository.save(nuevo);
+        pedidoEventPublisher.publishPedidoCreado(creado);
+        return creado;
     }
 
     @Transactional

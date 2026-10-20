@@ -51,9 +51,17 @@ Inicia sesion en https://portal.azure.com y busca el servicio **Microsoft Entra 
 
 ---
 
-## Parte 2: Que modificar en el codigo del proyecto
+## Parte 2: Configurar los identificadores en el entorno
 
-Solo debes reemplazar los identificadores en dos archivos:
+Los identificadores no se guardan en los archivos del proyecto. Para Docker Compose, crea un archivo local `.env` en la raiz (esta excluido por `.gitignore`) y define:
+
+```dotenv
+AZURE_TENANT_ID=<tenant-id>
+AZURE_CLIENT_ID=<backend-client-id>
+AZURE_APP_ID_URI=api://<backend-client-id>
+```
+
+Puedes partir desde `.env.example`. Para ejecutar el backend directamente en PowerShell, define esas variables de entorno en la terminal antes de iniciar Maven.
 
 ### 1. En el Frontend: `frontend/src/environments/environment.ts`
 Busca las siguientes lineas al inicio del archivo y pega tus datos de Azure:
@@ -69,22 +77,11 @@ azure: {
 }
 ```
 
-### 2. En el Backend: `backend/src/main/resources/application.yml`
-Busca las siguientes lineas al inicio del archivo y pega tus datos:
-
-```yaml
-azure:
-  activedirectory:
-    tenant-id: PEGA_AQUI_EL_TENANT_ID
-    client-id: PEGA_AQUI_EL_CLIENT_ID_DEL_BACKEND
-    app-id-uri: api://PEGA_AQUI_EL_CLIENT_ID_DEL_BACKEND
-```
-
 ---
 
 ## Como comprobar que todo funciona segun la rubrica
 
-1. Levanta el proyecto con Docker (`docker compose up --build`) o con `npm start` en frontend y `mvn spring-boot:run` en backend.
+1. Levanta el stack con `docker compose up --build` (PostgreSQL, RabbitMQ, productor, consumidor, administrador y Angular).
 2. Abre `http://localhost:4200` e inicia sesion con tu cuenta de Microsoft Azure.
 3. Entra a la opcion **Inspector de Tokens** del menu:
    - Debes ver que el claim `roles` tenga `Pedidos.Admin` u `Pedidos.Operador`.
