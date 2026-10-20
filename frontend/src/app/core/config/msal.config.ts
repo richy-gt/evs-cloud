@@ -77,9 +77,12 @@ export function MSALGuardConfigFactory(): MsalGuardConfiguration {
 export function MSALInterceptorConfigFactory(): MsalInterceptorConfiguration {
   const protectedResourceMap = new Map<string, Array<string | ProtectedResourceScopes> | null>();
 
-  // Endpoints protegidos del API Gateway de AWS y microservicios
-  protectedResourceMap.set(environment.api.baseUrl, environment.azure.scopes);
-  protectedResourceMap.set(environment.api.localBaseUrl, environment.azure.scopes);
+  // Protect both the API root and nested routes such as /api/pedidos.
+  for (const apiUrl of new Set([environment.api.baseUrl, environment.api.localBaseUrl])) {
+    const resourceUrl = apiUrl.replace(/\/+$/, '');
+    protectedResourceMap.set(resourceUrl, environment.azure.scopes);
+    protectedResourceMap.set(`${resourceUrl}/*`, environment.azure.scopes);
+  }
   protectedResourceMap.set('https://graph.microsoft.com/v1.0/me', ['User.Read']);
 
   return {
