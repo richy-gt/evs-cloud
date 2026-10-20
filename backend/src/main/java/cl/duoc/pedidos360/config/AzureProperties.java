@@ -7,13 +7,14 @@ import org.springframework.context.annotation.Configuration;
 @ConfigurationProperties(prefix = "azure.activedirectory")
 public class AzureProperties {
 
-    private String tenantId = "TU_TENANT_ID_DE_AZURE";
-    private String clientId = "TU_BACKEND_CLIENT_ID";
-    private String appIdUri = "api://TU_BACKEND_CLIENT_ID";
+    private String tenantId = "";
+    private String clientId = "";
+    private String appIdUri = "";
 
     public boolean isConfigured() {
-        return tenantId != null && !tenantId.isBlank() && !tenantId.contains("TU_TENANT_ID")
-                && clientId != null && !clientId.isBlank() && !clientId.contains("TU_BACKEND");
+        return tenantId != null && !tenantId.isBlank()
+            && clientId != null && !clientId.isBlank()
+            && appIdUri != null && !appIdUri.isBlank();
     }
 
     public String getTenantId() {

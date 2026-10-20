@@ -1,32 +1,15 @@
 server:
   port: 8080
 
-# ==============================================================================
-# SECCION PARA LA PERSONA ENCARGADA DE MICROSOFT AZURE
-# Reemplaza los dos valores indicados a continuacion con los datos del Azure Portal:
-# ==============================================================================
 azure:
   activedirectory:
-    # 1. Directory (tenant) ID registrado en Azure Entra ID
-    tenant-id: 3aff258d-8148-4333-b4f0-b703a6506f13
-
-    # 2. Application (client) ID de la aplicacion backend registrada en Azure
-    client-id: 438f00d6-0d85-47f8-b2ce-8bb0692ab42e
-
-    # 3. Application ID URI configurada en Expose an API en Azure
-    app-id-uri: api://8d2ecd3f-4a43-467d-b2f9-e75e887036e1
+    tenant-id: ${AZURE_TENANT_ID:}
+    client-id: ${AZURE_CLIENT_ID:}
+    app-id-uri: ${AZURE_APP_ID_URI:}
 
 spring:
   application:
     name: pedidos360-backend
-
-  # Configuracion de OAuth2 Resource Server para validar tokens de Azure AD
-  security:
-    oauth2:
-      resourceserver:
-        jwt:
-          issuer-uri: https://login.microsoftonline.com/${azure.activedirectory.tenant-id}/v2.0
-          jwk-set-uri: https://login.microsoftonline.com/${azure.activedirectory.tenant-id}/discovery/v2.0/keys
 
   # Configuracion de Base de Datos
   # En Docker Compose o Cloud se conecta a PostgreSQL mediante variables de entorno.
@@ -45,8 +28,36 @@ spring:
       hibernate:
         format_sql: true
 
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+
 # Configuracion de CORS para comunicacion con Angular
 app:
+  rabbit:
+    exchange: pedidos.events
+    retry-exchange: pedidos.retry
+    dead-letter-exchange: pedidos.dlx
+    routing-keys:
+      notifications: pedido.created.notifications
+      tickets: pedido.created.tickets
+      documents: pedido.created.documents
+    queues:
+      notifications: pedidos.notifications
+      tickets: pedidos.tickets
+      documents: pedidos.documents
+    retry-queues:
+      notifications: pedidos.notifications.retry
+      tickets: pedidos.tickets.retry
+      documents: pedidos.documents.retry
+    dead-letter-queues:
+      notifications: pedidos.notifications.dlq
+      tickets: pedidos.tickets.dlq
+      documents: pedidos.documents.dlq
+    retry-delay: 5000
+    max-retries: 3
   cors:
     allowed-origins:
       - "http://localhost:4200"

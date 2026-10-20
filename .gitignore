@@ -12,6 +12,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 **/*.log
+.env
+.env.*
+!.env.example
 
 # IDEs
 .idea/
@@ -31,3 +34,9 @@ Desktop.ini
 **/*.class
 **/*.jar
 **/*.war
+
+# Carpetas extras
+**/Documentos
+**/*.docx
+**/*.pdf
+
