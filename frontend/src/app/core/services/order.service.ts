@@ -3,7 +3,7 @@
 
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { BehaviorSubject, Observable, catchError, map, of, tap } from 'rxjs';
+import { BehaviorSubject, Observable, catchError, map, of, tap, throwError } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { EstadoPedido, Pedido, ResumenEstadisticas } from '../models/order.model';
 
@@ -158,13 +158,7 @@ export class OrderService {
     };
 
     return this.http.post<Pedido>(`${this.apiUrl}/pedidos`, pedidoCompleto).pipe(
-      catchError(() => {
-        // Guardar localmente
-        const current = this.pedidosSubject.value;
-        const updated = [pedidoCompleto, ...current];
-        this.pedidosSubject.next(updated);
-        return of(pedidoCompleto);
-      }),
+      catchError((error: unknown) => throwError(() => error)),
       tap((res) => {
         const current = this.pedidosSubject.value.filter((p) => p.id !== res.id);
         this.pedidosSubject.next([res, ...current]);

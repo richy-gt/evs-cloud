@@ -17,21 +17,19 @@ export const environment = {
     authority: 'https://login.microsoftonline.com/58c26126-72f0-428e-b188-c61a51999d72',
 
     // 4. URI de redireccion autorizada en Azure Portal (Single-Page Application)
-    redirectUri: 'http://localhost:4200',
+    redirectUri: 'https://172.183.130.23.sslip.io',
 
     // 5. URL de cierre de sesion
-    postLogoutRedirectUri: 'http://localhost:4200/login',
+    postLogoutRedirectUri: 'https://172.183.130.23.sslip.io/login',
 
     // 6. Scopes solicitados para acceder a la API del backend
     // Ejemplo: ['api://TU_BACKEND_CLIENT_ID/access_as_user', 'User.Read']
     scopes: ['api://1bbf593c-a093-4b35-8b78-c61b86831344/access_as_user', 'User.Read'],
   },
 
-  // Configuracion del API Gateway / BFF (Spring Boot en AWS EC2)
+  // Azure API Management gateway
   api: {
-    // URL base del API Gateway de AWS o BFF
-    baseUrl: 'http://localhost:8080/api',
-    // Si esta en desarrollo local con Spring Boot:
+    baseUrl: 'https://apim-pedidos360-cosa.azure-api.net/pedidos360',
     localBaseUrl: 'http://localhost:8080/api',
   },
 

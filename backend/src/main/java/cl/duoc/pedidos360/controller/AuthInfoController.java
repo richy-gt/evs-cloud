@@ -27,7 +27,7 @@ public class AuthInfoController {
                 "status", "UP",
                 "service", "pedidos360-backend",
                 "version", "1.0.0",
-                "cloudRuntime", "AWS EC2 / Docker"
+                "cloudRuntime", "Azure VM / Docker"
         ));
     }
 

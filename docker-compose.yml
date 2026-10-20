@@ -1,10 +1,16 @@
 services:
-  rabbitmq:
-    image: rabbitmq:3.13-management-alpine
-    container_name: pedidos360-rabbitmq
+  rabbitmq-1:
+    image: rabbitmq:4.2-management
+    hostname: rabbitmq-1
+    container_name: pedidos360-rabbitmq-1
     environment:
+      RABBITMQ_NODENAME: rabbit@rabbitmq-1
+      RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE:?Set RABBITMQ_ERLANG_COOKIE in .env}
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-pedidos360}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-pedidos360}
+    volumes:
+      - rabbitmq1_data:/var/lib/rabbitmq
+      - ./rabbitmq-cluster.conf:/etc/rabbitmq/rabbitmq.conf:ro
     ports:
       - "127.0.0.1:5672:5672"
       - "127.0.0.1:15672:15672"
@@ -13,6 +19,29 @@ services:
       interval: 5s
       timeout: 5s
       retries: 12
+    networks:
+      - pedidos360-network
+
+  rabbitmq-2:
+    image: rabbitmq:4.2-management
+    hostname: rabbitmq-2
+    container_name: pedidos360-rabbitmq-2
+    environment:
+      RABBITMQ_NODENAME: rabbit@rabbitmq-2
+      RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE:?Set RABBITMQ_ERLANG_COOKIE in .env}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-pedidos360}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-pedidos360}
+    volumes:
+      - rabbitmq2_data:/var/lib/rabbitmq
+      - ./rabbitmq-cluster.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    depends_on:
+      rabbitmq-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping && rabbitmqctl cluster_status | grep -q 'rabbit@rabbitmq-1'"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
     networks:
       - pedidos360-network
 
@@ -25,7 +54,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres123
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -47,7 +76,7 @@ services:
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: postgres123
       SPRING_DATASOURCE_DRIVER: org.postgresql.Driver
-      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_HOST: rabbitmq-1
       RABBITMQ_PORT: 5672
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-pedidos360}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-pedidos360}
@@ -55,11 +84,13 @@ services:
       AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
       AZURE_APP_ID_URI: ${AZURE_APP_ID_URI:-}
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     depends_on:
       postgres-db:
         condition: service_healthy
-      rabbitmq:
+      rabbitmq-1:
+        condition: service_healthy
+      rabbitmq-2:
         condition: service_healthy
     networks:
       - pedidos360-network
@@ -70,12 +101,14 @@ services:
       dockerfile: Dockerfile
     container_name: pedidos360-rabbit-consumer
     environment:
-      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_HOST: rabbitmq-1
       RABBITMQ_PORT: 5672
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-pedidos360}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-pedidos360}
     depends_on:
-      rabbitmq:
+      rabbitmq-1:
+        condition: service_healthy
+      rabbitmq-2:
         condition: service_healthy
     networks:
       - pedidos360-network
@@ -86,15 +119,35 @@ services:
       dockerfile: Dockerfile
     container_name: pedidos360-rabbit-admin
     environment:
-      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_HOST: rabbitmq-1
       RABBITMQ_PORT: 5672
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-pedidos360}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-pedidos360}
     ports:
       - "127.0.0.1:8081:8081"
     depends_on:
-      rabbitmq:
+      rabbitmq-1:
         condition: service_healthy
+      rabbitmq-2:
+        condition: service_healthy
+    networks:
+      - pedidos360-network
+
+  api-proxy:
+    image: caddy:2-alpine
+    container_name: pedidos360-api-proxy
+    environment:
+      API_DOMAIN: ${API_DOMAIN:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
     networks:
       - pedidos360-network
 
@@ -105,7 +158,7 @@ services:
       dockerfile: Dockerfile
     container_name: pedidos360-frontend
     ports:
-      - "4200:80"
+      - "127.0.0.1:4200:80"
     depends_on:
       - backend
     networks:
@@ -113,6 +166,10 @@ services:
 
 volumes:
   postgres_data:
+  rabbitmq1_data:
+  rabbitmq2_data:
+  caddy_data:
+  caddy_config:
 
 networks:
   pedidos360-network:

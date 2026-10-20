@@ -129,7 +129,7 @@ public class SecurityConfig {
             }
 
             boolean matches = audience.stream().anyMatch(aud ->
-                aud.equalsIgnoreCase(expectedAppUri) || aud.equalsIgnoreCase(expectedClientId) || aud.contains("pedidos360")
+                aud.equalsIgnoreCase(expectedAppUri) || aud.equalsIgnoreCase(expectedClientId)
             );
 
             if (matches) {

@@ -59,8 +59,4 @@ app:
     retry-delay: 5000
     max-retries: 3
   cors:
-    allowed-origins:
-      - "http://localhost:4200"
-      - "http://localhost:80"
-      - "http://localhost"
-      - "http://127.0.0.1:4200"
+    allowed-origins: "http://localhost:4200,http://localhost:80,http://localhost,http://127.0.0.1:4200,https://172.183.130.23.sslip.io"

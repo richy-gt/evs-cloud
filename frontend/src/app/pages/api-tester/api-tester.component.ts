@@ -24,7 +24,7 @@ interface ApiEndpointOption {
       <div class="page-header">
         <div>
           <h1>Consola de Pruebas API Gateway & BFF</h1>
-          <p>Verificacion en vivo de inyeccion de Bearer Token, roles y respuestas de servicios cloud</p>
+          <p>Pruebas HTTP reales contra la API configurada</p>
         </div>
       </div>
 
@@ -76,8 +76,8 @@ interface ApiEndpointOption {
             </div>
 
             <div class="headers-section">
-              <span class="meta-label">Cabeceras Inyectadas por Interceptor:</span>
-              <pre class="code-block headers-block">{{ simulatedHeaders | json }}</pre>
+              <span class="meta-label">Vista previa de cabeceras (confirma el envio en Network; el token se oculta):</span>
+              <pre class="code-block headers-block">{{ requestHeaderPreview | json }}</pre>
             </div>
 
             <div class="body-section" *ngIf="selectedEndpoint.sampleBody">
@@ -106,28 +106,6 @@ interface ApiEndpointOption {
             </div>
 
             <div *ngIf="hasExecuted">
-              <!-- Checklist de validacion en Gateway -->
-              <div class="validation-checklist card">
-                <div class="check-title">Validaciones Realizadas por el Gateway / BFF:</div>
-                <div class="check-row" [class.pass]="validationSummary.signaturePassed">
-                  <span class="check-bullet">OK</span>
-                  <span>Firma Criptografica (RS256 con claves Azure AD JWKS)</span>
-                </div>
-                <div class="check-row" [class.pass]="validationSummary.issuerPassed">
-                  <span class="check-bullet">OK</span>
-                  <span>Validacion de Emisor (iss = {{ validationSummary.issuer }})</span>
-                </div>
-                <div class="check-row" [class.pass]="validationSummary.audiencePassed">
-                  <span class="check-bullet">OK</span>
-                  <span>Validacion de Audiencia (aud = {{ validationSummary.audience }})</span>
-                </div>
-                <div class="check-row" [class.pass]="validationSummary.rolePassed">
-                  <span class="check-bullet">{{ validationSummary.rolePassed ? 'OK' : 'DENY' }}</span>
-                  <span>Control de Autorizacion RBAC (Rol: {{ userRole }})</span>
-                </div>
-              </div>
-
-              <!-- Payload de Respuesta -->
               <div class="response-json-section">
                 <span class="meta-label">Respuesta del Servidor:</span>
                 <pre class="code-block response-block">{{ responseData | json }}</pre>
@@ -366,10 +344,16 @@ export class ApiTesterComponent implements OnInit {
       sampleBody: {
         clienteNombre: 'Servicios Mineros Atacama Ltda.',
         clienteEmail: 'contacto@mineraatacama.cl',
+        clienteTelefono: '+56 9 1234 5678',
+        direccionEnvio: 'Av. Ejemplo 123, Antofagasta',
         ciudad: 'Antofagasta',
         total: 2850000,
         estado: 'PENDIENTE',
         prioridad: 'ALTA',
+        canalVenta: 'WEB',
+        items: [
+          { id: 'item-api-test-1', producto: 'Producto de prueba', sku: 'TEST-001', cantidad: 1, precioUnitario: 2850000, subtotal: 2850000 },
+        ],
       },
     },
     {
@@ -390,17 +374,7 @@ export class ApiTesterComponent implements OnInit {
   public responseStatusText = '';
   public responseData: unknown = null;
 
-  public simulatedHeaders: Record<string, string> = {};
-  public userRole = 'Pedidos.Admin';
-
-  public validationSummary = {
-    signaturePassed: true,
-    issuerPassed: true,
-    audiencePassed: true,
-    rolePassed: true,
-    issuer: 'Azure AD / Entra ID',
-    audience: 'api://pedidos360-backend-aws-ec2',
-  };
+  public requestHeaderPreview: Record<string, string> = {};
 
   ngOnInit(): void {
     this.refreshHeaders();
@@ -419,21 +393,14 @@ export class ApiTesterComponent implements OnInit {
 
   private refreshHeaders(): void {
     const tokenInfo = this.authService.inspectToken();
-    const tokenPreview = tokenInfo.rawToken
-      ? `${tokenInfo.rawToken.substring(0, 32)}...[LONGITUD: ${tokenInfo.rawToken.length} CARACTERES]`
-      : 'Bearer eyJhbGci...';
-
-    this.simulatedHeaders = {
+    this.requestHeaderPreview = {
       Accept: 'application/json',
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${tokenPreview}`,
+      Authorization: tokenInfo.rawToken ? 'Bearer [oculto]' : 'No hay token',
       'X-Client-Id': environment.azure.clientId,
       'X-Requested-With': 'Angular-MSAL-DSY1107',
     };
 
-    this.userRole = tokenInfo.roles[0] || 'Pedidos.Admin';
-    this.validationSummary.issuer = tokenInfo.issuer;
-    this.validationSummary.audience = tokenInfo.audience;
   }
 
   public executeRequest(): void {
@@ -441,89 +408,25 @@ export class ApiTesterComponent implements OnInit {
     this.hasExecuted = true;
     this.refreshHeaders();
 
-    const tokenInfo = this.authService.inspectToken();
-
-    // Verificamos si el endpoint requiere rol de Admin
-    if (this.selectedEndpoint.requiredRole && !tokenInfo.roles.includes(this.selectedEndpoint.requiredRole)) {
-      this.validationSummary.rolePassed = false;
-      this.responseStatus = 403;
-      this.responseStatusText = 'Forbidden';
-      this.responseData = {
-        timestamp: new Date().toISOString(),
-        status: 403,
-        error: 'Forbidden',
-        message: `Acceso denegado: El usuario no cuenta con el rol requerido [${this.selectedEndpoint.requiredRole}]. Roles del token: [${tokenInfo.roles.join(', ')}]`,
-        path: this.selectedEndpoint.path,
-      };
-      this.isLoading = false;
-      return;
-    }
-
-    this.validationSummary.rolePassed = true;
-
-    // Disparamos peticion real mediante HttpClient para que se registre en DevTools
     const targetUrl = this.currentFullUrl;
 
     const request$ =
       this.selectedEndpoint.method === 'POST'
-        ? this.http.post(targetUrl, this.selectedEndpoint.sampleBody)
-        : this.http.get(targetUrl);
+        ? this.http.post<unknown>(targetUrl, this.selectedEndpoint.sampleBody, { observe: 'response' })
+        : this.http.get<unknown>(targetUrl, { observe: 'response' });
 
     request$.subscribe({
-      next: (data) => {
+      next: (response) => {
         this.isLoading = false;
-        this.responseStatus = 200;
-        this.responseStatusText = 'OK';
-        this.responseData = data;
+        this.responseStatus = response.status;
+        this.responseStatusText = response.statusText;
+        this.responseData = response.body;
       },
       error: (err: HttpErrorResponse) => {
         this.isLoading = false;
-        // Si el backend aun no esta encendido en EC2, mostramos la respuesta controlada del BFF
-        this.responseStatus = 200;
-        this.responseStatusText = 'OK (Simulado por BFF)';
-
-        if (this.selectedEndpoint.id === 'get-orders') {
-          this.responseData = {
-            total: 5,
-            pedidos: [
-              { numeroPedido: 'PED-2025-001', cliente: 'Distribuidora Los Andes SpA', total: 3780000, estado: 'EN_PREPARACION' },
-              { numeroPedido: 'PED-2025-002', cliente: 'Tecnologia y Servicios Biobio Ltda.', total: 1035000, estado: 'DESPACHADO' },
-              { numeroPedido: 'PED-2025-003', cliente: 'Clinica Metropolitana Norte', total: 3930000, estado: 'PENDIENTE' },
-            ],
-            gatewayAuth: 'Validado con exito por AWS API Gateway',
-          };
-        } else if (this.selectedEndpoint.id === 'get-order-detail') {
-          this.responseData = {
-            id: 'ped-001',
-            numeroPedido: 'PED-2025-001',
-            clienteNombre: 'Distribuidora Los Andes SpA',
-            ciudad: 'Santiago',
-            total: 3780000,
-            estado: 'EN_PREPARACION',
-            itemsCount: 2,
-            verifiedClaims: { aud: tokenInfo.audience, iss: tokenInfo.issuer },
-          };
-        } else if (this.selectedEndpoint.id === 'post-order') {
-          this.responseStatus = 201;
-          this.responseStatusText = 'Created';
-          this.responseData = {
-            id: 'ped-006',
-            numeroPedido: 'PED-2025-006',
-            status: 'REGISTRADO_EN_BASE_DE_DATOS_CLOUD',
-            mensaje: 'Pedido creado exitosamente con credencial autorizada',
-            datos: this.selectedEndpoint.sampleBody,
-          };
-        } else {
-          this.responseData = {
-            status: 'AUTORIZADO',
-            rolVerificado: this.selectedEndpoint.requiredRole,
-            metricasGlobales: {
-              pedidosMes: 142,
-              tiempoPromedioDespachoHoras: 18.5,
-              satisfaccionClientePorcentaje: 98.2,
-            }
-          };
-        }
+        this.responseStatus = err.status || null;
+        this.responseStatusText = err.statusText || err.message;
+        this.responseData = err.error ?? { message: err.message };
       }
     });
   }
