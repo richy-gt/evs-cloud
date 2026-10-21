@@ -100,5 +100,6 @@ mvn -f rabbit-admin/pom.xml test
 - `backend/`: Microservicio en Java Spring Boot con Spring Security, JPA y validacion de tokens JWT.
 - `rabbit-consumer/`: Microservicio Spring Boot consumidor de notificaciones, tickets y documentos.
 - `rabbit-admin/`: Microservicio Spring Boot para administrar recursos RabbitMQ mediante REST.
+- `kafka-tutorial/`: Modulo independiente para la Actividad 3.2.1 de Apache Kafka (topics, particiones, productor, consumidor y offsets).
 - `docker-compose.yml`: Archivo para levantar base de datos, backend y frontend juntos.
 - `GUIA_CONFIGURACION_AZURE.md`: Guia paso a paso para la configuracion en Azure Portal.
