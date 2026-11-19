@@ -14,22 +14,30 @@ app:
       pedidos-stream:
         name: pedidos.streaming.eventos
         partitions: 3
-        replication-factor: 1
+        replication-factor: 3
         configs:
-          retention.ms: "604800000" # 7 dias de retencion para eventos de pedidos
-          cleanup.policy: "delete"
+          "[retention.ms]": "604800000"
+          "[cleanup.policy]": "delete"
+          "[min.insync.replicas]": "2"
       pedidos-audit:
         name: pedidos.auditoria.log
         partitions: 3
-        replication-factor: 1
+        replication-factor: 3
         configs:
-          retention.ms: "2592000000" # 30 dias de retencion para auditoria
-          cleanup.policy: "delete"
+          "[retention.ms]": "2592000000"
+          "[cleanup.policy]": "delete"
+          "[min.insync.replicas]": "2"
       pedidos-stream-dlt:
         name: pedidos.streaming.eventos.DLT
         partitions: 3
-        replication-factor: 1
+        replication-factor: 3
+        configs:
+          "[retention.ms]": "1209600000"
+          "[cleanup.policy]": "delete"
       pedidos-audit-dlt:
         name: pedidos.auditoria.log.DLT
         partitions: 3
-        replication-factor: 1
+        replication-factor: 3
+        configs:
+          "[retention.ms]": "1209600000"
+          "[cleanup.policy]": "delete"

@@ -158,16 +158,18 @@ public class KafkaAdminService {
         Map<TopicPartition, org.apache.kafka.clients.consumer.OffsetAndMetadata> offsets =
                 adminClient.listConsumerGroupOffsets(groupId).partitionsToOffsetAndMetadata().get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
+        Map<TopicPartition, OffsetSpec> latestReq = new HashMap<>();
+        offsets.keySet().forEach(tp -> latestReq.put(tp, OffsetSpec.latest()));
+        Map<TopicPartition, ListOffsetsResult.ListOffsetsResultInfo> ends =
+                adminClient.listOffsets(latestReq).all().get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
         Map<String, ConsumerGroupDetailResponse.PartitionLagInfo> partitionOffsets = new HashMap<>();
         offsets.forEach((tp, om) -> {
             String key = tp.topic() + "-p" + tp.partition();
+            long current = om != null ? om.offset() : 0;
+            long end = (ends != null && ends.containsKey(tp) && ends.get(tp) != null) ? ends.get(tp).offset() : current;
             partitionOffsets.put(key, new ConsumerGroupDetailResponse.PartitionLagInfo(
-                    tp.topic(),
-                    tp.partition(),
-                    om != null ? om.offset() : 0,
-                    om != null ? om.offset() : 0, // Estimado sin log end offset
-                    0L
-            ));
+                    tp.topic(), tp.partition(), current, end, Math.max(0, end - current)));
         });
 
         String coordinator = desc.coordinator() != null ? desc.coordinator().host() + ":" + desc.coordinator().port() : "N/A";

@@ -1,8 +1,12 @@
 package cl.duoc.pedidos360.consumer.config;
 
+import cl.duoc.pedidos360.kafka.dto.PedidoAuditoriaKafkaDto;
+import cl.duoc.pedidos360.kafka.dto.PedidoEventKafkaDto;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.serialization.ByteArraySerializer;
+import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.slf4j.Logger;
@@ -15,12 +19,14 @@ import org.springframework.kafka.core.*;
 import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.kafka.support.serializer.DelegatingByTypeSerializer;
 import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
 import org.springframework.kafka.support.serializer.JsonSerializer;
 import org.springframework.util.backoff.FixedBackOff;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Configuration
@@ -41,9 +47,16 @@ public class KafkaConsumerConfig {
     public ProducerFactory<String, Object> producerFactory() {
         Map<String, Object> config = new HashMap<>();
         config.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        config.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
-        config.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, JsonSerializer.class);
-        return new DefaultKafkaProducerFactory<>(config);
+        config.put(ProducerConfig.ACKS_CONFIG, "all");
+        config.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
+
+        Map<Class<?>, Serializer<?>> delegates = new LinkedHashMap<>();
+        delegates.put(byte[].class, new ByteArraySerializer());
+        delegates.put(PedidoEventKafkaDto.class, new JsonSerializer<>());
+        delegates.put(PedidoAuditoriaKafkaDto.class, new JsonSerializer<>());
+
+        return new DefaultKafkaProducerFactory<>(config, new StringSerializer(),
+                new DelegatingByTypeSerializer(delegates));
     }
 
     @Bean
@@ -61,7 +74,7 @@ public class KafkaConsumerConfig {
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
         props.put(ErrorHandlingDeserializer.KEY_DESERIALIZER_CLASS, StringDeserializer.class.getName());
         props.put(ErrorHandlingDeserializer.VALUE_DESERIALIZER_CLASS, JsonDeserializer.class.getName());
-        props.put(JsonDeserializer.TRUSTED_PACKAGES, "cl.duoc.pedidos360.*,*");
+        props.put(JsonDeserializer.TRUSTED_PACKAGES, "cl.duoc.pedidos360.kafka.dto");
         return new DefaultKafkaConsumerFactory<>(props);
     }
 
@@ -70,6 +83,11 @@ public class KafkaConsumerConfig {
         // Envia a topic con sufijo .DLT al agotar reintentos
         DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(kafkaTemplate,
                 (record, exception) -> {
+                    if (record.topic().endsWith(".DLT")) {
+                        log.error("💀 Mensaje irrecuperable en DLT '{}' [Partición {}, Offset {}]. Descartando sin reenviar.",
+                                record.topic(), record.partition(), record.offset());
+                        return null;
+                    }
                     String dltTopic = record.topic() + ".DLT";
                     log.error("🚨 Reintentos agotados para mensaje en topic '{}', particion {}, offset {}. Redirigiendo a DLT '{}'. Causa: {}",
                             record.topic(), record.partition(), record.offset(), dltTopic, exception.getMessage());
@@ -85,6 +103,8 @@ public class KafkaConsumerConfig {
                     deliveryAttempt, record.topic(), record.key(), record.offset(), ex.getMessage());
         });
 
+        errorHandler.addNotRetryableExceptions(IllegalArgumentException.class);
+
         return errorHandler;
     }
 
@@ -96,6 +116,7 @@ public class KafkaConsumerConfig {
         ConcurrentKafkaListenerContainerFactory<String, Object> factory = new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory);
         factory.setCommonErrorHandler(defaultErrorHandler);
+        factory.setConcurrency(3);
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.RECORD);
         return factory;
     }

@@ -4,6 +4,8 @@ import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.TopicBuilder;
@@ -13,16 +15,16 @@ import java.util.HashMap;
 import java.util.Map;
 
 @Configuration
+@EnableConfigurationProperties(KafkaAdminConfig.KafkaTopicsProperties.class)
 public class KafkaAdminConfig {
+
+    @ConfigurationProperties(prefix = "app.kafka")
+    public record KafkaTopicsProperties(Map<String, TopicSpec> topics) {
+        public record TopicSpec(String name, int partitions, short replicationFactor, Map<String, String> configs) {}
+    }
 
     @Value("${spring.kafka.bootstrap-servers:localhost:9092}")
     private String bootstrapServers;
-
-    @Value("${app.kafka.topics.pedidos-stream.name:pedidos.streaming.eventos}")
-    private String streamTopicName;
-
-    @Value("${app.kafka.topics.pedidos-audit.name:pedidos.auditoria.log}")
-    private String auditTopicName;
 
     @Bean
     public KafkaAdmin kafkaAdmin() {
@@ -38,43 +40,14 @@ public class KafkaAdminConfig {
         return AdminClient.create(configs);
     }
 
-    // Topico 1: Streaming de eventos de pedidos con retencion de 7 dias y particionado
     @Bean
-    public NewTopic pedidosStreamTopic() {
-        return TopicBuilder.name(streamTopicName)
-                .partitions(3)
-                .replicas(1)
-                .config("retention.ms", "604800000") // 7 dias
-                .config("cleanup.policy", "delete")
-                .build();
-    }
-
-    // Topico 2: Auditoria operacional con retencion extendida de 30 dias
-    @Bean
-    public NewTopic pedidosAuditTopic() {
-        return TopicBuilder.name(auditTopicName)
-                .partitions(3)
-                .replicas(1)
-                .config("retention.ms", "2592000000") // 30 dias
-                .config("cleanup.policy", "delete")
-                .build();
-    }
-
-    // DLT para streaming
-    @Bean
-    public NewTopic pedidosStreamDltTopic() {
-        return TopicBuilder.name(streamTopicName + ".DLT")
-                .partitions(3)
-                .replicas(1)
-                .build();
-    }
-
-    // DLT para auditoria
-    @Bean
-    public NewTopic pedidosAuditDltTopic() {
-        return TopicBuilder.name(auditTopicName + ".DLT")
-                .partitions(3)
-                .replicas(1)
-                .build();
+    public KafkaAdmin.NewTopics pedidosTopics(KafkaTopicsProperties props) {
+        return new KafkaAdmin.NewTopics(props.topics().values().stream()
+                .map(t -> TopicBuilder.name(t.name())
+                        .partitions(t.partitions())
+                        .replicas(t.replicationFactor())
+                        .configs(t.configs() == null ? Map.of() : t.configs())
+                        .build())
+                .toArray(NewTopic[]::new));
     }
 }

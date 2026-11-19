@@ -1,12 +1,12 @@
-# Pedidos360 - Evaluacion Cloud Native I (Duoc UC)
+# Pedidos360 - Sistema Cloud Native (Duoc UC)
 
-Este proyecto es la solucion para la Evaluacion Parcial N° 1 de Cloud Native. Es un sistema de gestion de pedidos llamado Pedidos360, compuesto por un frontend en Angular con autenticacion MSAL (Azure AD) y un backend en Spring Boot (Java) protegido con OAuth2 Resource Server y base de datos relacional.
+Este proyecto es la solución integral del sistema de gestión de pedidos **Pedidos360** para la asignatura de Desarrollo Cloud Native I. Integra frontend en Angular con Azure AD (MSAL), backend en Spring Boot con PostgreSQL, mensajería transaccional asíncrona con **RabbitMQ** (Evaluación 3) y streaming distribuido de alto rendimiento con **Apache Kafka** en clúster multi-broker (Evaluación 5).
 
 ---
 
 ## Como levantar todo rapido con Docker
 
-La forma mas sencilla de correr todo el sistema (base de datos PostgreSQL, backend y frontend) es con Docker Compose:
+La forma mas sencilla de correr todo el sistema (12 contenedores: clúster Kafka de 3 brokers, ZooKeeper, RabbitMQ, PostgreSQL, backend, consumidores, administradores y frontend) es con Docker Compose:
 
 ```bash
 docker compose up --build
@@ -15,17 +15,24 @@ docker compose up --build
 Una vez que termine de compilar y levantar los contenedores:
 - Frontend: http://localhost:4200
 - Backend API: http://localhost:8080/api/health
+- Kafka UI (Consola Clúster): http://localhost:8085
+- Consola RabbitMQ: http://localhost:15672
+- Administrador Kafka REST: http://localhost:8083
+- Administrador RabbitMQ REST: http://localhost:8081
 - Base de datos PostgreSQL: puerto 5432
 
-Para detener los servicios:
+Para detener los servicios y limpiar volúmenes:
 ```bash
-docker compose down
+docker compose down -v
 ```
 
 ---
 ## Evaluacion Parcial 3: RabbitMQ
 
 La solucion mantiene Pedidos360 como productor autenticado con JWT/IDaaS y Angular como frontend. Se agregaron dos aplicaciones Spring Boot independientes: `rabbit-consumer/` (consumidores por dominio) y `rabbit-admin/` (administracion REST). El demo React de `rabbit-lab/` no forma parte del despliegue principal.
+
+> **Nota de Diseño Arquitectónico (RabbitMQ Single-Node):**
+> Por decisión de diseño y alcance operativo, RabbitMQ se implementa como un nodo único altamente confiable para la gestión de mensajería transaccional puntual (notificaciones, tickets y emisión de documentos), reservando la complejidad de un clúster distribuido multi-broker (con 3 réplicas, quorum y replicación en sincronía) a Apache Kafka, donde el caso de uso de streaming masivo de eventos y analítica continua lo justifica plenamente.
 
 ### Levantar todo con Docker
 
@@ -136,10 +143,12 @@ Esta etapa complementa la arquitectura Cloud Native integrando **Apache Kafka** 
 | **`rabbit-admin`** | Spring Boot | `8081` | Microservicio de administracion REST para colas y exchanges RabbitMQ. |
 | **`rabbit-consumer`** | Spring Boot | `8082` | Consumidor AMQP de notificaciones, tickets y documentos. |
 | **`kafka-admin`** | Spring Boot | `8083` | Microservicio de administracion REST para topicos y consumer groups Kafka. |
-| **`kafka-consumer`** | Spring Boot | `8084` | Consumidor Kafka con grupos `pedidos360-analytics-group` y `pedidos360-audit-group`. |
-| **`kafka-ui`** | Web Console | `8085` | Consola web de observabilidad de Kafka (brokers, topicos, mensajes y offsets). |
-| **`rabbitmq`** | Infraestructura | `5672` / `15672` | Broker y consola web de administracion RabbitMQ. |
-| **`kafka`** | Broker Streaming | `9092` / `29092` | Broker Apache Kafka (`PLAINTEXT` interno en 29092 y host en 9092). |
+| **`kafka-consumer`** | Spring Boot | `8084` | Consumidor Kafka con grupos `pedidos360-analytics-group` y `pedidos360-audit-group` (concurrencia 3). |
+| **`kafka-ui`** | Web Console (v0.7.2) | `8085` | Consola web de observabilidad de Kafka (brokers, topicos, mensajes y offsets). |
+| **`rabbitmq`** | Infraestructura | `5672` / `15672` | Broker y consola web de administracion RabbitMQ (nodo único transaccional). |
+| **`kafka-1`** | Broker Streaming | `9092` / `29092` | Broker 1 del clúster Apache Kafka (Replicación 3, ISR 2). |
+| **`kafka-2`** | Broker Streaming | `9093` / `29092` | Broker 2 del clúster Apache Kafka (Replicación 3, ISR 2). |
+| **`kafka-3`** | Broker Streaming | `9094` / `29092` | Broker 3 del clúster Apache Kafka (Replicación 3, ISR 2). |
 | **`zookeeper`** | Coordinador | `2181` | Coordinador de cluster Kafka. |
 | **`postgres-db`** | Base de Datos | `5432` | PostgreSQL para persistencia transaccional del backend. |
 
@@ -147,14 +156,14 @@ Esta etapa complementa la arquitectura Cloud Native integrando **Apache Kafka** 
 
 ### Especificacion de Topicos Kafka y Parametros de Administracion
 
-El sistema declara y gestiona dos topicos principales y sus correspondientes colas de descarte (DLT) con configuraciones ajustadas a las necesidades del negocio:
+El sistema declara y gestiona dos topicos principales y sus correspondientes colas de descarte (DLT) con configuraciones ajustadas a las necesidades del negocio (con factor de replicación 3 en el clúster):
 
-| Topico | Particiones | Replicas | Configuraciones (`retention.ms`, `cleanup.policy`) | Clave de Particionado (`Key`) | Proposito |
+| Topico | Particiones | Replicas | Configuraciones (`retention.ms`, `cleanup.policy`, `min.insync.replicas`) | Clave de Particionado (`Key`) | Proposito |
 | :--- | :---: | :---: | :--- | :--- | :--- |
-| **`pedidos.streaming.eventos`** | **3** | **1** | `retention.ms=604800000` (7 dias)<br>`cleanup.policy=delete` | `numeroPedido` (ej: `PED-2025-004`) | Ingesta de ciclo de vida (`PEDIDO_CREADO`, `ESTADO_ACTUALIZADO`). Garantiza orden estricto por pedido mediante Sticky Partitioning. |
-| **`pedidos.auditoria.log`** | **3** | **1** | `retention.ms=2592000000` (30 dias)<br>`cleanup.policy=delete` | `canalVenta` / `id` (ej: `PORTAL_B2B`) | Trazabilidad y auditoria de acciones (`CREACION_PEDIDO`, `CAMBIO_ESTADO`, usuario, montos). |
-| **`pedidos.streaming.eventos.DLT`** | **3** | **1** | Por defecto | Mantiene clave original | Dead Letter Topic para eventos de streaming con errores irrecuperables. |
-| **`pedidos.auditoria.log.DLT`** | **3** | **1** | Por defecto | Mantiene clave original | Dead Letter Topic para registros de auditoria fallidos. |
+| **`pedidos.streaming.eventos`** | **3** | **3** | `retention.ms=604800000` (7 dias)<br>`cleanup.policy=delete`<br>`min.insync.replicas=2` | `numeroPedido` (ej: `PED-2025-004`) | Ingesta de ciclo de vida (`PEDIDO_CREADO`, `ESTADO_ACTUALIZADO`). Garantiza orden estricto por pedido mediante Sticky Partitioning. |
+| **`pedidos.auditoria.log`** | **3** | **3** | `retention.ms=2592000000` (30 dias)<br>`cleanup.policy=delete`<br>`min.insync.replicas=2` | `canalVenta` / `id` (ej: `PORTAL_B2B`) | Trazabilidad y auditoria de acciones (`CREACION_PEDIDO`, `CAMBIO_ESTADO`, usuario, montos). |
+| **`pedidos.streaming.eventos.DLT`** | **3** | **3** | `retention.ms=1209600000` (14 dias)<br>`cleanup.policy=delete` | Mantiene clave original (soporte raw bytes) | Dead Letter Topic para eventos de streaming con errores irrecuperables. |
+| **`pedidos.auditoria.log.DLT`** | **3** | **3** | `retention.ms=1209600000` (14 dias)<br>`cleanup.policy=delete` | Mantiene clave original (soporte raw bytes) | Dead Letter Topic para registros de auditoria fallidos. |
 
 ---
 
