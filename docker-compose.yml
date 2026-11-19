@@ -1,3 +1,24 @@
+x-kafka-common: &kafka-common
+  image: confluentinc/cp-kafka:7.5.0
+  depends_on: [zookeeper]
+  networks: [pedidos360-network]
+  healthcheck:
+    test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server $$HOSTNAME:29092 >/dev/null 2>&1"]
+    interval: 10s
+    timeout: 10s
+    retries: 12
+
+x-kafka-env: &kafka-env
+  KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+  KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+  KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+  KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+  KAFKA_MIN_INSYNC_REPLICAS: 2
+  KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+  KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+  KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+
 services:
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
@@ -36,6 +57,65 @@ services:
     networks:
       - pedidos360-network
 
+  # Coordinador ZooKeeper para Cluster Kafka
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: pedidos360-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - pedidos360-network
+
+  # Cluster Apache Kafka (3 Brokers con healthcheck y réplica 3)
+  kafka-1:
+    <<: *kafka-common
+    container_name: pedidos360-kafka-1
+    ports: ["9092:9092"]
+    environment:
+      <<: *kafka-env
+      KAFKA_BROKER_ID: 1
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1:29092,PLAINTEXT_HOST://localhost:9092
+
+  kafka-2:
+    <<: *kafka-common
+    container_name: pedidos360-kafka-2
+    ports: ["9093:9093"]
+    environment:
+      <<: *kafka-env
+      KAFKA_BROKER_ID: 2
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-2:29092,PLAINTEXT_HOST://localhost:9093
+
+  kafka-3:
+    <<: *kafka-common
+    container_name: pedidos360-kafka-3
+    ports: ["9094:9094"]
+    environment:
+      <<: *kafka-env
+      KAFKA_BROKER_ID: 3
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-3:29092,PLAINTEXT_HOST://localhost:9094
+
+  # Kafka UI: Interfaz de administracion y observabilidad
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    container_name: pedidos360-kafka-ui
+    depends_on:
+      kafka-1: { condition: service_healthy }
+      kafka-2: { condition: service_healthy }
+      kafka-3: { condition: service_healthy }
+    ports:
+      - "${KAFKA_UI_PORT:-8085}:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: pedidos360-kafka
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka-1:29092,kafka-2:29092,kafka-3:29092
+    networks:
+      - pedidos360-network
+
   # Microservicio Backend en Spring Boot
   backend:
     build:
@@ -54,12 +134,19 @@ services:
       AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
       AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
       AZURE_APP_ID_URI: ${AZURE_APP_ID_URI:-}
+      KAFKA_BOOTSTRAP_SERVERS: kafka-1:29092,kafka-2:29092,kafka-3:29092
     ports:
       - "8080:8080"
     depends_on:
       postgres-db:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
         condition: service_healthy
     networks:
       - pedidos360-network
@@ -80,6 +167,21 @@ services:
     networks:
       - pedidos360-network
 
+  kafka-consumer:
+    build:
+      context: ./kafka-consumer
+      dockerfile: Dockerfile
+    container_name: pedidos360-kafka-consumer
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka-1:29092,kafka-2:29092,kafka-3:29092
+      SERVER_PORT: 8084
+    depends_on:
+      kafka-1: { condition: service_healthy }
+      kafka-2: { condition: service_healthy }
+      kafka-3: { condition: service_healthy }
+    networks:
+      - pedidos360-network
+
   rabbit-admin:
     build:
       context: ./rabbit-admin
@@ -95,6 +197,23 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
+    networks:
+      - pedidos360-network
+
+  kafka-admin:
+    build:
+      context: ./kafka-admin
+      dockerfile: Dockerfile
+    container_name: pedidos360-kafka-admin
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka-1:29092,kafka-2:29092,kafka-3:29092
+      SERVER_PORT: 8083
+    ports:
+      - "127.0.0.1:8083:8083"
+    depends_on:
+      kafka-1: { condition: service_healthy }
+      kafka-2: { condition: service_healthy }
+      kafka-3: { condition: service_healthy }
     networks:
       - pedidos360-network
 

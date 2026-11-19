@@ -33,6 +33,12 @@
             <artifactId>spring-boot-starter-amqp</artifactId>
         </dependency>
 
+        <!-- Spring Kafka para streaming y publicacion de eventos -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
+
         <!-- Spring Security y OAuth2 Resource Server para validar JWT de Azure AD -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
