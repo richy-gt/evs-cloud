@@ -34,6 +34,16 @@ spring:
     username: ${RABBITMQ_USERNAME:guest}
     password: ${RABBITMQ_PASSWORD:guest}
 
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.add.type.headers: true
+        acks: all
+        retries: 3
+
 # Configuracion de CORS para comunicacion con Angular
 app:
   rabbit:
@@ -58,6 +68,10 @@ app:
       documents: pedidos.documents.dlq
     retry-delay: 5000
     max-retries: 3
+  kafka:
+    topics:
+      pedidos-stream: pedidos.streaming.eventos
+      pedidos-audit: pedidos.auditoria.log
   cors:
     allowed-origins:
       - "http://localhost:4200"

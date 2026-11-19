@@ -1,0 +1,35 @@
+server:
+  port: ${SERVER_PORT:8083}
+
+spring:
+  application:
+    name: pedidos360-kafka-admin
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+# Configuracion de administración de tópicos por defecto (Pauta de Evaluación)
+app:
+  kafka:
+    topics:
+      pedidos-stream:
+        name: pedidos.streaming.eventos
+        partitions: 3
+        replication-factor: 1
+        configs:
+          retention.ms: "604800000" # 7 dias de retencion para eventos de pedidos
+          cleanup.policy: "delete"
+      pedidos-audit:
+        name: pedidos.auditoria.log
+        partitions: 3
+        replication-factor: 1
+        configs:
+          retention.ms: "2592000000" # 30 dias de retencion para auditoria
+          cleanup.policy: "delete"
+      pedidos-stream-dlt:
+        name: pedidos.streaming.eventos.DLT
+        partitions: 3
+        replication-factor: 1
+      pedidos-audit-dlt:
+        name: pedidos.auditoria.log.DLT
+        partitions: 3
+        replication-factor: 1

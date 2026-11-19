@@ -4,6 +4,7 @@ import cl.duoc.pedidos360.entity.ItemPedidoEntity;
 import cl.duoc.pedidos360.entity.PedidoEntity;
 import cl.duoc.pedidos360.repository.PedidoRepository;
 import cl.duoc.pedidos360.messaging.PedidoEventPublisher;
+import cl.duoc.pedidos360.kafka.producer.PedidoKafkaProducer;
 import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,10 +17,16 @@ public class PedidoService {
 
     private final PedidoRepository pedidoRepository;
     private final PedidoEventPublisher pedidoEventPublisher;
+    private final PedidoKafkaProducer pedidoKafkaProducer;
 
-    public PedidoService(PedidoRepository pedidoRepository, PedidoEventPublisher pedidoEventPublisher) {
+    public PedidoService(
+            PedidoRepository pedidoRepository,
+            PedidoEventPublisher pedidoEventPublisher,
+            PedidoKafkaProducer pedidoKafkaProducer
+    ) {
         this.pedidoRepository = pedidoRepository;
         this.pedidoEventPublisher = pedidoEventPublisher;
+        this.pedidoKafkaProducer = pedidoKafkaProducer;
     }
 
     @PostConstruct
@@ -110,27 +117,60 @@ public class PedidoService {
         if (nuevo.getEstado() == null || nuevo.getEstado().isBlank()) {
             nuevo.setEstado("PENDIENTE");
         }
+        if (nuevo.getCiudad() == null || nuevo.getCiudad().isBlank()) {
+            nuevo.setCiudad("Santiago");
+        }
+        if (nuevo.getClienteTelefono() == null || nuevo.getClienteTelefono().isBlank()) {
+            nuevo.setClienteTelefono("+56 9 0000 0000");
+        }
+        if (nuevo.getDireccionEnvio() == null || nuevo.getDireccionEnvio().isBlank()) {
+            nuevo.setDireccionEnvio("Sin direccion especificada");
+        }
+        if (nuevo.getPrioridad() == null || nuevo.getPrioridad().isBlank()) {
+            nuevo.setPrioridad("MEDIA");
+        }
+        if (nuevo.getCanalVenta() == null || nuevo.getCanalVenta().isBlank()) {
+            nuevo.setCanalVenta("WEB");
+        }
 
         if (nuevo.getItems() != null) {
             int itemIdx = 1;
+            double totalCalculado = 0.0;
             for (ItemPedidoEntity item : nuevo.getItems()) {
                 if (item.getId() == null || item.getId().isBlank()) {
                     item.setId(nuevo.getId() + "-it-" + itemIdx++);
                 }
                 item.setPedido(nuevo);
+                if (item.getSubtotal() == null) {
+                    double precio = item.getPrecioUnitario() != null ? item.getPrecioUnitario() : 0.0;
+                    int cant = item.getCantidad() != null ? item.getCantidad() : 1;
+                    item.setSubtotal(precio * cant);
+                }
+                totalCalculado += item.getSubtotal();
             }
+            if (nuevo.getTotal() == null) {
+                nuevo.setTotal(totalCalculado);
+            }
+        } else if (nuevo.getTotal() == null) {
+            nuevo.setTotal(0.0);
         }
 
         PedidoEntity creado = pedidoRepository.save(nuevo);
         pedidoEventPublisher.publishPedidoCreado(creado);
+        pedidoKafkaProducer.publicarEventoPedido(creado, "PEDIDO_CREADO");
+        pedidoKafkaProducer.publicarAuditoria(creado, "CREACION_PEDIDO", null, creado.getEstado(), "SISTEMA");
         return creado;
     }
 
     @Transactional
     public Optional<PedidoEntity> updateEstado(String id, String nuevoEstado) {
         return getPedidoById(id).map(pedido -> {
+            String estadoAnterior = pedido.getEstado();
             pedido.setEstado(nuevoEstado);
-            return pedidoRepository.save(pedido);
+            PedidoEntity guardado = pedidoRepository.save(pedido);
+            pedidoKafkaProducer.publicarEventoPedido(guardado, "ESTADO_ACTUALIZADO");
+            pedidoKafkaProducer.publicarAuditoria(guardado, "CAMBIO_ESTADO", estadoAnterior, nuevoEstado, "SISTEMA");
+            return guardado;
         });
     }
 

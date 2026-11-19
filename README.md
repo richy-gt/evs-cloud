@@ -94,12 +94,195 @@ mvn -f rabbit-consumer/pom.xml test
 mvn -f rabbit-admin/pom.xml test
 ```
 
+## Evaluacion Parcial 5: Apache Kafka (Streaming, Analitica y Administracion)
+
+Esta etapa complementa la arquitectura Cloud Native integrando **Apache Kafka** para streaming de eventos y analitica en tiempo real, coexistiendo armonicamente con **RabbitMQ** (comunicacion transaccional puntual) sin afectar sus integraciones previas.
+
+### Arquitectura de Mensajeria Dual (RabbitMQ + Kafka)
+
+```
+                              ┌───────────────────────────────────┐
+                              │        pedidos360-backend         │
+                              │    (Productor Dual / Spring Boot) │
+                              └─────────┬───────────────┬─────────┘
+                                        │               │
+            [RabbitMQ: Tareas Discretas]│               │[Kafka: Streaming y Analitica]
+                                        ▼               ▼
+                       ┌──────────────────────┐   ┌──────────────────────────────┐
+                       │ Exchange:            │   │ Topico 1:                    │
+                       │  pedidos.events      │   │  pedidos.streaming.eventos   │
+                       └────────┬─────────────┘   │  (3 particiones, orden key)  │
+                                │                 ├──────────────────────────────┤
+               ┌────────────────┼────────────┐    │ Topico 2:                    │
+               │                │            │    │  pedidos.auditoria.log       │
+               ▼                ▼            ▼    │  (retencion 30d, metricas)   │
+           pedidos.         pedidos.     pedidos. └──────────────┬───────────────┘
+         notifications       tickets     documents               │
+               │                │            │                   │
+               └────────────────┼────────────┘                   ├──────────────────────────────┐
+                                ▼                                ▼                              ▼
+                     ┌──────────────────────┐         ┌──────────────────────┐      ┌──────────────────────┐
+                     │   rabbit-consumer    │         │    kafka-consumer    │      │    kafka-consumer    │
+                     │  (Notif/Ticket/Docs) │         │(pedidos360-analytics)│      │  (pedidos360-audit)  │
+                     └──────────────────────┘         └──────────────────────┘      └──────────────────────┘
+```
+
+### Tabla de Microservicios y Puertos del Ecosistema
+
+| Componente / Servicio | Tipo | Puerto Host | Descripcion |
+| :--- | :--- | :--- | :--- |
+| **`frontend`** | Angular | `4200` | UI Web con login IDaaS (Azure AD / MSAL). |
+| **`backend`** | Spring Boot | `8080` | API REST pedidos, productor RabbitMQ y productor Kafka. |
+| **`rabbit-admin`** | Spring Boot | `8081` | Microservicio de administracion REST para colas y exchanges RabbitMQ. |
+| **`rabbit-consumer`** | Spring Boot | `8082` | Consumidor AMQP de notificaciones, tickets y documentos. |
+| **`kafka-admin`** | Spring Boot | `8083` | Microservicio de administracion REST para topicos y consumer groups Kafka. |
+| **`kafka-consumer`** | Spring Boot | `8084` | Consumidor Kafka con grupos `pedidos360-analytics-group` y `pedidos360-audit-group`. |
+| **`kafka-ui`** | Web Console | `8085` | Consola web de observabilidad de Kafka (brokers, topicos, mensajes y offsets). |
+| **`rabbitmq`** | Infraestructura | `5672` / `15672` | Broker y consola web de administracion RabbitMQ. |
+| **`kafka`** | Broker Streaming | `9092` / `29092` | Broker Apache Kafka (`PLAINTEXT` interno en 29092 y host en 9092). |
+| **`zookeeper`** | Coordinador | `2181` | Coordinador de cluster Kafka. |
+| **`postgres-db`** | Base de Datos | `5432` | PostgreSQL para persistencia transaccional del backend. |
+
+---
+
+### Especificacion de Topicos Kafka y Parametros de Administracion
+
+El sistema declara y gestiona dos topicos principales y sus correspondientes colas de descarte (DLT) con configuraciones ajustadas a las necesidades del negocio:
+
+| Topico | Particiones | Replicas | Configuraciones (`retention.ms`, `cleanup.policy`) | Clave de Particionado (`Key`) | Proposito |
+| :--- | :---: | :---: | :--- | :--- | :--- |
+| **`pedidos.streaming.eventos`** | **3** | **1** | `retention.ms=604800000` (7 dias)<br>`cleanup.policy=delete` | `numeroPedido` (ej: `PED-2025-004`) | Ingesta de ciclo de vida (`PEDIDO_CREADO`, `ESTADO_ACTUALIZADO`). Garantiza orden estricto por pedido mediante Sticky Partitioning. |
+| **`pedidos.auditoria.log`** | **3** | **1** | `retention.ms=2592000000` (30 dias)<br>`cleanup.policy=delete` | `canalVenta` / `id` (ej: `PORTAL_B2B`) | Trazabilidad y auditoria de acciones (`CREACION_PEDIDO`, `CAMBIO_ESTADO`, usuario, montos). |
+| **`pedidos.streaming.eventos.DLT`** | **3** | **1** | Por defecto | Mantiene clave original | Dead Letter Topic para eventos de streaming con errores irrecuperables. |
+| **`pedidos.auditoria.log.DLT`** | **3** | **1** | Por defecto | Mantiene clave original | Dead Letter Topic para registros de auditoria fallidos. |
+
+---
+
+### Grupos de Consumidores (Consumer Groups)
+
+Se implementaron grupos de consumidores diferenciados que permiten balanceo de carga, resiliencia e independencia de procesamiento (Publish/Subscribe):
+
+1. **`pedidos360-analytics-group`**:
+   - Suscrito a: `pedidos.streaming.eventos`.
+   - Delegacion: `AnalyticsProcessingService` para procesar metricas continuas (volumen, montos acumulados, conteos por estado).
+2. **`pedidos360-audit-group`**:
+   - Suscrito a: `pedidos.auditoria.log`.
+   - Delegacion: `AuditProcessingService` para almacenar traza historica de operaciones.
+3. **`pedidos360-dlt-monitor-group`**:
+   - Suscrito a los topicos `.DLT` para monitoreo de anomalias operacionales.
+
+---
+
+### Resiliencia y Manejo de Errores
+
+* **Deserializacion Segura:** Uso de `ErrorHandlingDeserializer` tanto en Key como en Value para impedir bucles infinitos causados por "poison pills" (mensajes con JSON malformado).
+* **Control de Reintentos:** `DefaultErrorHandler` con `FixedBackOff` configurado a 3 reintentos antes del descarte.
+* **Dead Letter Topic (DLT):** `DeadLetterPublishingRecoverer` desvia automaticamente los mensajes fallidos a `<topic>.DLT` registrando particion, offset y causa del error.
+* **Separacion de Capas:** Los listeners (`@KafkaListener`) estan desacoplados de los servicios de dominio de negocio (`AnalyticsProcessingService` y `AuditProcessingService`).
+
+---
+
+### Endpoints del Microservicio Administrador Kafka (`kafka-admin` en puerto 8083)
+
+El microservicio expone operaciones REST completas sobre Kafka utilizando el `AdminClient` oficial:
+
+#### 1. Listar topicos
+```bash
+curl http://localhost:8083/topics
+```
+
+#### 2. Consultar detalle y configuraciones de un topico (particiones, retencion, ISR)
+```bash
+curl http://localhost:8083/topics/pedidos.streaming.eventos
+```
+
+#### 3. Crear nuevo topico con particiones y retencion personalizada
+```bash
+curl -X POST http://localhost:8083/topics \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "pedidos.reportes.especiales",
+    "partitions": 3,
+    "replicationFactor": 1,
+    "configs": {
+      "retention.ms": "86400000",
+      "cleanup.policy": "delete"
+    }
+  }'
+```
+
+#### 4. Modificar parametros de configuracion de un topico (ej: cambiar retencion)
+```bash
+curl -X PUT http://localhost:8083/topics/pedidos.reportes.especiales/configs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "configs": {
+      "retention.ms": "172800000"
+    }
+  }'
+```
+
+#### 5. Incrementar particiones de un topico
+```bash
+curl -X PUT http://localhost:8083/topics/pedidos.reportes.especiales/partitions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "totalPartitions": 6
+  }'
+```
+
+#### 6. Eliminar un topico
+```bash
+curl -X DELETE http://localhost:8083/topics/pedidos.reportes.especiales
+```
+
+#### 7. Listar grupos de consumidores activos
+```bash
+curl http://localhost:8083/consumer-groups
+```
+
+#### 8. Inspeccionar detalle de un grupo de consumidores (miembros, asignaciones, offsets)
+```bash
+curl http://localhost:8083/consumer-groups/pedidos360-analytics-group
+```
+
+---
+
+### Monitoreo en Kafka UI
+
+Ingresa en tu navegador a:
+```
+http://localhost:8085
+```
+Encontraras el cluster `pedidos360-kafka` donde podras:
+- Ver la lista de topicos y sus particiones (0, 1, 2).
+- Inspeccionar mensajes en tiempo real con sus claves (`Key`), particion y `Offset`.
+- Revisar el estado `STABLE` y asignacion de los consumer groups.
+
+---
+
+### Ejecucion de Pruebas Automatizadas
+
+Para validar las pruebas unitarias de todos los componentes:
+
+```powershell
+mvn -f backend/pom.xml test
+mvn -f kafka-consumer/pom.xml test
+mvn -f kafka-admin/pom.xml test
+mvn -f rabbit-consumer/pom.xml test
+mvn -f rabbit-admin/pom.xml test
+```
+
+---
+
 ## Estructura del proyecto
 
 - `frontend/`: Aplicacion en Angular con MSAL, guards, interceptores y vistas del sistema.
-- `backend/`: Microservicio en Java Spring Boot con Spring Security, JPA y validacion de tokens JWT.
-- `rabbit-consumer/`: Microservicio Spring Boot consumidor de notificaciones, tickets y documentos.
-- `rabbit-admin/`: Microservicio Spring Boot para administrar recursos RabbitMQ mediante REST.
-- `kafka-tutorial/`: Modulo independiente para la Actividad 3.2.1 de Apache Kafka (topics, particiones, productor, consumidor y offsets).
-- `docker-compose.yml`: Archivo para levantar base de datos, backend y frontend juntos.
+- `backend/`: Microservicio en Spring Boot con JPA, autenticacion JWT, productor RabbitMQ y productor Kafka.
+- `rabbit-consumer/`: Microservicio Spring Boot consumidor de colas RabbitMQ.
+- `rabbit-admin/`: Microservicio Spring Boot para administracion REST de colas y exchanges RabbitMQ.
+- `kafka-consumer/`: Microservicio Spring Boot consumidor Kafka con grupos de analitica, auditoria y resiliencia DLT.
+- `kafka-admin/`: Microservicio Spring Boot para administracion REST de topicos, particiones, retencion y consumer groups Kafka.
+- `kafka-tutorial/`: Laboratorio educativo de demostracion basica de particiones y offsets.
+- `docker-compose.yml`: Orquestacion completa de los 10 contenedores (PostgreSQL, RabbitMQ, ZooKeeper, Kafka Broker, Kafka UI, backend, consumidores y administradores).
 - `GUIA_CONFIGURACION_AZURE.md`: Guia paso a paso para la configuracion en Azure Portal.
